@@ -1,0 +1,24 @@
+# Ethereum Configuration
+# Get your Infura Project ID from https://infura.io/
+INFURA_URL=https://mainnet.infura.io/v3/YOUR_PROJECT_ID
+# Optional: Alchemy as fallback (not recommended)
+# ALCHEMY_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
+
+# Database Configuration
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=blockchain_data
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_password
+
+MONGODB_URI=mongodb://localhost:27017/
+MONGODB_DB=blockchain_data
+
+# Data Collection Configuration
+BATCH_SIZE=100
+START_BLOCK=0
+END_BLOCK=0
+
+# Logging Configuration
+LOG_LEVEL=INFO
+LOG_FILE=blockchain_collector.log 

@@ -5,7 +5,7 @@ A comprehensive Python-based system for collecting, storing, and analyzing Ether
 ## 📋 Project Overview
 
 This blockchain data collector is designed to:
-- **Connect** to Ethereum mainnet via Infura API (primary) with Alchemy fallback
+- **Connect** to Ethereum mainnet via Infura API
 - **Extract** block and transaction data in real-time or from historical blocks
 - **Transform** raw blockchain data into structured formats
 - **Load** data into PostgreSQL and/or MongoDB databases
@@ -18,8 +18,8 @@ This blockchain data collector is designed to:
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   Ethereum      │    │   ETL Pipeline  │    │   Databases     │
 │   Blockchain    │───▶│   (Python)      │───▶│   (PostgreSQL/  │
-│   (Infura/      │    │                 │    │    MongoDB)     │
-│   Alchemy)      │    │                 │    │                 │
+│   (Infura)      │    │                 │    │    MongoDB)     │
+│                 │    │                 │    │                 │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 │
                                 ▼
@@ -40,8 +40,7 @@ This blockchain data collector is designed to:
 - **Plotly** - Data visualization
 
 ### External Services
-- **Infura** - Primary Ethereum node provider (recommended)
-- **Alchemy** - Fallback Ethereum node provider (optional)
+- **Infura** - Ethereum node provider
 - **PostgreSQL** - Relational database for structured data
 - **MongoDB** - NoSQL database for flexible document storage
 
@@ -62,6 +61,7 @@ ETHblockChain/
 ├── dashboard.py           # Streamlit dashboard
 ├── main.py               # Command-line interface
 ├── test_connection.py    # Connection testing script
+├── test_infura_connection.py  # Infura-specific connection test
 ├── requirements.txt      # Python dependencies
 ├── env_example.txt       # Environment variables template
 ├── .gitignore           # Git ignore patterns
@@ -101,7 +101,7 @@ pip install -r requirements.txt
    # Edit .env with your Infura credentials
    INFURA_URL=https://mainnet.infura.io/v3/YOUR_PROJECT_ID
    
-   # Optional: Alchemy as fallback
+   # Optional: Alchemy as fallback (not recommended)
    # ALCHEMY_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
    ```
 
@@ -145,7 +145,7 @@ python main.py dashboard
 ## 📊 Features
 
 ### 🔗 Blockchain Integration
-- **Real-time Connection:** Connect to Ethereum mainnet via Infura (primary) with Alchemy fallback
+- **Real-time Connection:** Connect to Ethereum mainnet via Infura
 - **Block Data Extraction:** Retrieve complete block information
 - **Transaction Analysis:** Extract detailed transaction data
 - **Address Validation:** Validate Ethereum addresses
@@ -197,7 +197,8 @@ python main.py dashboard
 ```bash
 # Ethereum Configuration
 INFURA_URL=https://mainnet.infura.io/v3/YOUR_PROJECT_ID
-ALCHEMY_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
+# Optional: Alchemy as fallback (not recommended)
+# ALCHEMY_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
 
 # Database Configuration
 POSTGRES_HOST=localhost
@@ -335,7 +336,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 🙏 Acknowledgments
 
 - **Ethereum Foundation** for the blockchain technology
-- **Infura** and **Alchemy** for providing Ethereum node access
+- **Infura** for providing Ethereum node access
 - **Web3.py** community for the excellent Python library
 - **Streamlit** team for the interactive dashboard framework
 

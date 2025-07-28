@@ -37,7 +37,8 @@ This blockchain data collector is designed to:
 - **SQLAlchemy** - Database ORM for PostgreSQL
 - **PyMongo** - MongoDB driver
 - **Streamlit** - Interactive web dashboard
-- **Plotly** - Data visualization
+- **FastAPI** - REST API framework for data endpoints
+- **Uvicorn** - ASGI server for FastAPI applications
 
 ### External Services
 - **Infura** - Ethereum node provider
@@ -45,10 +46,92 @@ This blockchain data collector is designed to:
 - **MongoDB** - NoSQL database for flexible document storage
 
 ### Key Libraries
-- **pandas** - Data manipulation and analysis
-- **schedule** - Task scheduling for automated collection
-- **python-dotenv** - Environment variable management
-- **requests** - HTTP client for API calls
+- **pandas** - Data manipulation and analysis for blockchain data processing
+- **schedule** - Task scheduling for automated data collection
+- **python-dotenv** - Environment variable management for secure configuration
+- **requests** - HTTP client for API calls and external service communication
+- **Pydantic** - Data validation and settings management
+
+## 📦 Dependencies Explained
+
+### **Blockchain & Web3**
+- **web3==6.11.3** - Core Ethereum interaction library
+  - Connects to Ethereum network via Infura
+  - Retrieves blocks, transactions, and account data
+  - Handles Web3 protocol communication
+  - Provides utilities for address validation and balance checking
+
+### **Data Processing**
+- **pandas==2.1.4** - Data manipulation and analysis
+  - Processes large datasets of blockchain data
+  - Performs statistical analysis on transaction patterns
+  - Handles time series data for blockchain metrics
+  - Exports data to various formats (CSV, JSON, etc.)
+
+### **Database Connectivity**
+- **psycopg2-binary==2.9.9** - PostgreSQL adapter
+  - Connects to PostgreSQL database for structured data storage
+  - Handles efficient bulk data insertion
+  - Manages database transactions and connections
+  - Optimized for high-performance blockchain data storage
+
+- **pymongo==4.6.0** - MongoDB driver
+  - Connects to MongoDB for flexible document storage
+  - Stores complex blockchain data structures
+  - Handles JSON-like data efficiently
+  - Provides aggregation capabilities for data analysis
+
+- **sqlalchemy==2.0.23** - Database ORM
+  - Object-Relational Mapping for PostgreSQL
+  - Defines database models (Block, Transaction)
+  - Manages database schema and migrations
+  - Provides query interface for data retrieval
+
+### **Web Framework & APIs**
+- **streamlit==1.28.2** - Interactive web dashboard
+  - Creates real-time blockchain data visualization
+  - Provides user-friendly interface for data exploration
+  - Displays charts, tables, and interactive components
+  - Enables live monitoring of blockchain activity
+
+- **fastapi==0.104.1** - REST API framework
+  - Exposes blockchain data via REST endpoints
+  - Provides programmatic access to collected data
+  - Handles API authentication and rate limiting
+  - Generates automatic API documentation
+
+- **uvicorn==0.24.0** - ASGI server
+  - Runs FastAPI applications in production
+  - Handles concurrent requests efficiently
+  - Provides WebSocket support for real-time updates
+  - Optimized for high-performance API serving
+
+### **Configuration & Utilities**
+- **python-dotenv==1.0.0** - Environment management
+  - Loads configuration from .env files
+  - Securely manages API keys and database credentials
+  - Separates configuration from code
+  - Supports different environments (dev, prod, test)
+
+- **requests==2.31.0** - HTTP client
+  - Makes API calls to external services
+  - Handles HTTP requests and responses
+  - Provides session management and retry logic
+  - Used for additional blockchain data sources
+
+### **Automation & Scheduling**
+- **schedule==1.2.0** - Task scheduling
+  - Automates blockchain data collection
+  - Runs periodic data collection tasks
+  - Manages scheduled ETL pipeline execution
+  - Provides cron-like functionality for Python
+
+### **Data Validation**
+- **pydantic==2.5.0** - Data validation
+  - Validates blockchain data structures
+  - Ensures data integrity and type safety
+  - Provides automatic data serialization
+  - Used for API request/response models
 
 ## 📁 Project Structure
 
@@ -85,6 +168,14 @@ cd ETHblockChain
 # Install dependencies
 pip install -r requirements.txt
 ```
+
+**Note:** The installation includes all necessary dependencies for:
+- **Blockchain interaction** (Web3.py)
+- **Database operations** (PostgreSQL, MongoDB)
+- **Data processing** (Pandas)
+- **Web dashboard** (Streamlit)
+- **API endpoints** (FastAPI)
+- **Automation** (Schedule)
 
 ### 3. Configuration
 

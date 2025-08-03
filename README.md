@@ -468,45 +468,261 @@ LOG_LEVEL=INFO
 LOG_FILE=blockchain_collector.log
 ```
 
-### Database Schema
+## 🗄️ Database Schema
 
-#### PostgreSQL Tables
+### PostgreSQL Schema
+
+The application uses PostgreSQL as the primary database for structured blockchain data storage. The schema is designed to efficiently store and query Ethereum blockchain data with proper indexing and relationships.
+
+#### Tables Structure
+
+##### 1. **blocks** Table
+Stores Ethereum block information with optimized indexing for fast queries.
+
 ```sql
--- Blocks table
 CREATE TABLE blocks (
-    block_number BIGINT PRIMARY KEY,
-    block_hash VARCHAR(66) UNIQUE NOT NULL,
-    parent_hash VARCHAR(66) NOT NULL,
-    timestamp BIGINT NOT NULL,
-    miner VARCHAR(42) NOT NULL,
-    difficulty BIGINT NOT NULL,
-    gas_limit BIGINT NOT NULL,
-    gas_used BIGINT NOT NULL,
-    transaction_count INTEGER NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    block_number BIGINT PRIMARY KEY,                    -- Unique block identifier
+    block_hash VARCHAR(66) UNIQUE NOT NULL,            -- Block hash (0x + 64 hex chars)
+    parent_hash VARCHAR(66) NOT NULL,                  -- Previous block hash
+    timestamp BIGINT NOT NULL,                         -- Unix timestamp when mined
+    miner VARCHAR(42) NOT NULL,                        -- Miner's Ethereum address
+    difficulty BIGINT NOT NULL,                        -- Mining difficulty
+    gas_limit BIGINT NOT NULL,                        -- Maximum gas allowed
+    gas_used BIGINT NOT NULL,                         -- Actual gas consumed
+    transaction_count INTEGER NOT NULL,                -- Number of transactions
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP     -- Record creation time
 );
 
--- Transactions table
-CREATE TABLE transactions (
-    tx_hash VARCHAR(66) PRIMARY KEY,
-    block_number BIGINT NOT NULL,
-    from_address VARCHAR(42) NOT NULL,
-    to_address VARCHAR(42),
-    value_wei BIGINT NOT NULL,
-    value_ether FLOAT NOT NULL,
-    gas BIGINT NOT NULL,
-    gas_price BIGINT NOT NULL,
-    gas_price_gwei FLOAT NOT NULL,
-    input_data TEXT,
-    nonce BIGINT NOT NULL,
-    transaction_index INTEGER NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- Indexes for performance
+CREATE INDEX idx_blocks_timestamp ON blocks(timestamp);
+CREATE INDEX idx_blocks_miner ON blocks(miner);
+CREATE INDEX idx_blocks_gas_used ON blocks(gas_used);
 ```
 
-#### MongoDB Collections
-- **blocks:** Block data with embedded transactions
-- **transactions:** Individual transaction records
+**Key Features:**
+- **Primary Key:** `block_number` - Ensures unique block identification
+- **Unique Constraint:** `block_hash` - Prevents duplicate blocks
+- **Indexing:** Optimized indexes for timestamp, miner, and gas usage queries
+- **Data Types:** BIGINT for large numbers, VARCHAR for fixed-length hashes
+
+##### 2. **transactions** Table
+Stores individual transaction data with relationships to blocks.
+
+```sql
+CREATE TABLE transactions (
+    tx_hash VARCHAR(66) PRIMARY KEY,                   -- Unique transaction hash
+    block_number BIGINT NOT NULL,                      -- Foreign key to blocks
+    from_address VARCHAR(42) NOT NULL,                 -- Sender address
+    to_address VARCHAR(42),                            -- Recipient address (nullable for contract creation)
+    value_wei NUMERIC(78,0) NOT NULL,                 -- Transaction value in Wei (handles large numbers)
+    value_ether FLOAT NOT NULL,                        -- Transaction value in ETH
+    gas BIGINT NOT NULL,                              -- Gas limit for transaction
+    gas_price NUMERIC(78,0) NOT NULL,                 -- Gas price in Wei
+    gas_price_gwei FLOAT NOT NULL,                    -- Gas price in Gwei (human-readable)
+    input_data TEXT,                                   -- Additional transaction data
+    nonce BIGINT NOT NULL,                            -- Transaction nonce
+    transaction_index INTEGER NOT NULL,                -- Position within block
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP     -- Record creation time
+);
+
+-- Indexes for performance
+CREATE INDEX idx_transactions_block_number ON transactions(block_number);
+CREATE INDEX idx_transactions_from_address ON transactions(from_address);
+CREATE INDEX idx_transactions_to_address ON transactions(to_address);
+CREATE INDEX idx_transactions_value_ether ON transactions(value_ether);
+CREATE INDEX idx_transactions_gas_price_gwei ON transactions(gas_price_gwei);
+```
+
+**Key Features:**
+- **Primary Key:** `tx_hash` - Ensures unique transaction identification
+- **Foreign Key:** `block_number` - Links to blocks table
+- **Large Number Support:** `NUMERIC(78,0)` for Wei values (handles very large numbers)
+- **Nullable Fields:** `to_address` can be null for contract creation transactions
+- **Comprehensive Indexing:** Indexes on frequently queried fields
+
+#### Data Types Explained
+
+| Field | Type | Size | Purpose | Example |
+|-------|------|------|---------|---------|
+| `block_number` | BIGINT | 8 bytes | Block sequence number | `23060145` |
+| `block_hash` | VARCHAR(66) | 66 chars | Full block hash | `0x1234...abcd` |
+| `parent_hash` | VARCHAR(66) | 66 chars | Previous block hash | `0x5678...efgh` |
+| `timestamp` | BIGINT | 8 bytes | Unix timestamp | `1703123456` |
+| `miner` | VARCHAR(42) | 42 chars | Miner's address | `0xabcd...1234` |
+| `difficulty` | BIGINT | 8 bytes | Mining difficulty | `1234567890` |
+| `gas_limit` | BIGINT | 8 bytes | Block gas limit | `15000000` |
+| `gas_used` | BIGINT | 8 bytes | Actual gas used | `1000000` |
+| `transaction_count` | INTEGER | 4 bytes | Number of transactions | `150` |
+| `tx_hash` | VARCHAR(66) | 66 chars | Transaction hash | `0x9876...wxyz` |
+| `from_address` | VARCHAR(42) | 42 chars | Sender address | `0xabcd...1234` |
+| `to_address` | VARCHAR(42) | 42 chars | Recipient address | `0x5678...efgh` |
+| `value_wei` | NUMERIC(78,0) | Variable | Value in Wei | `1000000000000000000` |
+| `value_ether` | FLOAT | 4 bytes | Value in ETH | `1.0` |
+| `gas` | BIGINT | 8 bytes | Gas limit | `21000` |
+| `gas_price` | NUMERIC(78,0) | Variable | Gas price in Wei | `20000000000` |
+| `gas_price_gwei` | FLOAT | 4 bytes | Gas price in Gwei | `20.0` |
+| `input_data` | TEXT | Variable | Transaction data | `0x...` |
+| `nonce` | BIGINT | 8 bytes | Transaction nonce | `5` |
+| `transaction_index` | INTEGER | 4 bytes | Position in block | `0` |
+
+#### Relationships
+
+```mermaid
+erDiagram
+    BLOCKS ||--o{ TRANSACTIONS : contains
+    
+    BLOCKS {
+        bigint block_number PK
+        varchar block_hash UK
+        varchar parent_hash
+        bigint timestamp
+        varchar miner
+        bigint difficulty
+        bigint gas_limit
+        bigint gas_used
+        integer transaction_count
+        timestamp created_at
+    }
+    
+    TRANSACTIONS {
+        varchar tx_hash PK
+        bigint block_number FK
+        varchar from_address
+        varchar to_address
+        numeric value_wei
+        float value_ether
+        bigint gas
+        numeric gas_price
+        float gas_price_gwei
+        text input_data
+        bigint nonce
+        integer transaction_index
+        timestamp created_at
+    }
+```
+
+#### Query Examples
+
+**1. Get Latest Block:**
+```sql
+SELECT * FROM blocks 
+ORDER BY block_number DESC 
+LIMIT 1;
+```
+
+**2. Get Block with Transactions:**
+```sql
+SELECT b.*, t.* 
+FROM blocks b
+LEFT JOIN transactions t ON b.block_number = t.block_number
+WHERE b.block_number = 23060145;
+```
+
+**3. Get Transaction Statistics:**
+```sql
+SELECT 
+    COUNT(*) as total_transactions,
+    AVG(value_ether) as avg_value,
+    AVG(gas_price_gwei) as avg_gas_price
+FROM transactions;
+```
+
+**4. Get Gas Usage Trends:**
+```sql
+SELECT 
+    DATE(FROM_UNIXTIME(timestamp)) as date,
+    AVG(gas_used) as avg_gas_used,
+    SUM(transaction_count) as total_transactions
+FROM blocks 
+GROUP BY DATE(FROM_UNIXTIME(timestamp))
+ORDER BY date DESC;
+```
+
+### MongoDB Schema (Alternative)
+
+For flexible document storage, the application also supports MongoDB with the following collections:
+
+#### Collections Structure
+
+##### 1. **blocks** Collection
+```javascript
+{
+  "_id": ObjectId("..."),
+  "block_number": 23060145,
+  "block_hash": "0x1234...abcd",
+  "parent_hash": "0x5678...efgh",
+  "timestamp": 1703123456,
+  "miner": "0xabcd...1234",
+  "difficulty": 1234567890,
+  "gas_limit": 15000000,
+  "gas_used": 1000000,
+  "transaction_count": 150,
+  "transactions": [
+    {
+      "tx_hash": "0x9876...wxyz",
+      "from_address": "0xabcd...1234",
+      "to_address": "0x5678...efgh",
+      "value_wei": "1000000000000000000",
+      "value_ether": 1.0,
+      "gas": 21000,
+      "gas_price": "20000000000",
+      "gas_price_gwei": 20.0,
+      "input_data": "0x...",
+      "nonce": 5,
+      "transaction_index": 0
+    }
+  ],
+  "created_at": ISODate("2024-01-01T00:00:00Z")
+}
+```
+
+##### 2. **transactions** Collection
+```javascript
+{
+  "_id": ObjectId("..."),
+  "tx_hash": "0x9876...wxyz",
+  "block_number": 23060145,
+  "from_address": "0xabcd...1234",
+  "to_address": "0x5678...efgh",
+  "value_wei": "1000000000000000000",
+  "value_ether": 1.0,
+  "gas": 21000,
+  "gas_price": "20000000000",
+  "gas_price_gwei": 20.0,
+  "input_data": "0x...",
+  "nonce": 5,
+  "transaction_index": 0,
+  "created_at": ISODate("2024-01-01T00:00:00Z")
+}
+```
+
+#### MongoDB Indexes
+```javascript
+// Blocks collection indexes
+db.blocks.createIndex({"block_number": 1});
+db.blocks.createIndex({"timestamp": 1});
+db.blocks.createIndex({"miner": 1});
+
+// Transactions collection indexes
+db.transactions.createIndex({"tx_hash": 1});
+db.transactions.createIndex({"block_number": 1});
+db.transactions.createIndex({"from_address": 1});
+db.transactions.createIndex({"to_address": 1});
+```
+
+### Database Selection Guide
+
+| Feature | PostgreSQL | MongoDB |
+|---------|------------|---------|
+| **Data Structure** | Structured, relational | Flexible, document-based |
+| **Query Performance** | Excellent for complex joins | Fast for document queries |
+| **ACID Compliance** | Full ACID support | Eventual consistency |
+| **Schema Flexibility** | Fixed schema | Dynamic schema |
+| **Transaction Support** | Full transaction support | Limited transaction support |
+| **Storage Efficiency** | Optimized for structured data | Good for nested documents |
+| **Use Case** | Primary database (recommended) | Alternative for flexibility |
+
+**Recommendation:** Use PostgreSQL as the primary database for its ACID compliance, structured schema, and excellent query performance for blockchain data analysis.
 
 ## 📈 Performance Considerations
 

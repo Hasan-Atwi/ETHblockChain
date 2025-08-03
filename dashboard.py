@@ -28,7 +28,7 @@ st.set_page_config(
 @st.cache_resource
 def get_db_manager():
     """Get database manager instance"""
-    return DatabaseManager(use_postgres=False, use_mongodb=True)  # Use MongoDB for demo
+    return DatabaseManager(use_postgres=True, use_mongodb=False)  # Use PostgreSQL
 
 @st.cache_resource
 def get_blockchain_client():
@@ -83,19 +83,17 @@ def show_overview(db_manager, blockchain_client):
         
         with col2:
             # Get total blocks in database
-            total_blocks = db_manager.blocks_collection.count_documents({})
+            total_blocks = db_manager.get_total_blocks_count()
             st.metric("Blocks Collected", f"{total_blocks:,}")
         
         with col3:
             # Get total transactions in database
-            total_transactions = db_manager.transactions_collection.count_documents({})
+            total_transactions = db_manager.get_total_transactions_count()
             st.metric("Transactions Collected", f"{total_transactions:,}")
         
         with col4:
             # Get latest block from database
-            latest_db_block = db_manager.blocks_collection.find_one(
-                sort=[('block_number', -1)]
-            )
+            latest_db_block = db_manager.get_latest_block_from_db()
             if latest_db_block:
                 st.metric("Last Updated", f"Block #{latest_db_block['block_number']:,}")
             else:
@@ -108,9 +106,7 @@ def show_overview(db_manager, blockchain_client):
     st.subheader("Recent Blocks")
     try:
         # Get last 50 blocks
-        recent_blocks = list(db_manager.blocks_collection.find(
-            sort=[('block_number', -1)]
-        ).limit(50))
+        recent_blocks = db_manager.get_recent_blocks(50)
         
         if recent_blocks:
             df_blocks = pd.DataFrame(recent_blocks)
@@ -172,16 +168,12 @@ def show_block_explorer(db_manager, blockchain_client):
                     st.warning(f"Block {block_num} not found in database")
             
             elif search_option == "Block Hash" and search_value:
-                block_data = db_manager.blocks_collection.find_one({'block_hash': search_value})
-                if block_data:
-                    display_block_details(block_data)
-                else:
-                    st.warning(f"Block with hash {search_value} not found")
+                # For PostgreSQL, we need to implement a method to search by hash
+                # For now, we'll use the existing get_block method
+                st.warning("Search by block hash not implemented yet")
             
             elif search_option == "Latest Blocks":
-                blocks = list(db_manager.blocks_collection.find(
-                    sort=[('block_number', -1)]
-                ).limit(num_blocks))
+                blocks = db_manager.get_recent_blocks(num_blocks)
                 
                 if blocks:
                     display_blocks_table(blocks)
@@ -248,9 +240,7 @@ def show_transaction_analysis(db_manager):
     
     try:
         # Get recent transactions
-        recent_txs = list(db_manager.transactions_collection.find(
-            sort=[('block_number', -1)]
-        ).limit(1000))
+        recent_txs = db_manager.get_recent_transactions(1000)
         
         if recent_txs:
             df_txs = pd.DataFrame(recent_txs)
@@ -316,7 +306,7 @@ def show_network_statistics(db_manager):
     
     try:
         # Get all blocks
-        all_blocks = list(db_manager.blocks_collection.find())
+        all_blocks = db_manager.get_all_blocks()
         
         if all_blocks:
             df_blocks = pd.DataFrame(all_blocks)
@@ -402,7 +392,7 @@ def show_data_collection(db_manager, blockchain_client):
         try:
             from etl_pipeline import ETLPipeline
             
-            pipeline = ETLPipeline(use_postgres=False, use_mongodb=True)
+            pipeline = ETLPipeline(use_postgres=True, use_mongodb=False)
             
             with st.spinner("Collecting data..."):
                 if collection_type == "Latest Blocks":

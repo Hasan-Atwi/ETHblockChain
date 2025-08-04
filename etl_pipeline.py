@@ -175,9 +175,10 @@ class ETLPipeline:
                 transformed_block = self.transform_block_data(block_data)
                 
                 # Store block
+                logger.info(f"Storing block {block_data['block_number']} with {len(block_data.get('transactions', []))} transactions")
                 if self.db_manager.store_block_with_transactions(transformed_block):
                     success_count += 1
-                    logger.debug(f"Successfully loaded block {block_data['block_number']}")
+                    logger.info(f"Successfully loaded block {block_data['block_number']} with {len(block_data.get('transactions', []))} transactions")
                 else:
                     logger.error(f"Failed to load block {block_data['block_number']}")
                 

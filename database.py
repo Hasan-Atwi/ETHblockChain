@@ -466,9 +466,9 @@ class DatabaseManager:
         # Return True only if both block and all transactions were stored successfully
         return block_success and transactions_success
     
-    def get_block(self, block_number: int) -> Optional[Dict[str, Any]]:
+    def get_block(self, block_number: int, include_transactions: bool = True) -> Optional[Dict[str, Any]]:
         """
-        Retrieve block data from database
+        Retrieve block data from database by block number
         
         This method attempts to retrieve block data from PostgreSQL first, then
         MongoDB if PostgreSQL fails or returns no results. This provides redundancy
@@ -476,6 +476,7 @@ class DatabaseManager:
         
         Args:
             block_number: The block number to retrieve
+            include_transactions: Whether to include transaction data
             
         Returns:
             Optional[Dict[str, Any]]: Block data dictionary or None if not found
@@ -490,11 +491,10 @@ class DatabaseManager:
                 
                 # Query for the block with the specified block number
                 block = session.query(Block).filter(Block.block_number == block_number).first()
-                session.close()
                 
-                # If block found, convert SQLAlchemy object to dictionary
+                block_data = None
                 if block:
-                    return {
+                    block_data = {
                         'block_number': block.block_number,
                         'block_hash': block.block_hash,
                         'parent_hash': block.parent_hash,
@@ -505,6 +505,32 @@ class DatabaseManager:
                         'gas_used': block.gas_used,
                         'transaction_count': block.transaction_count
                     }
+                    
+                    # Include transactions if requested
+                    if include_transactions:
+                        transactions = session.query(Transaction).filter(
+                            Transaction.block_number == block_number
+                        ).order_by(Transaction.transaction_index).all()
+                        
+                        block_data['transactions'] = [{
+                            'tx_hash': tx.tx_hash,
+                            'block_number': tx.block_number,
+                            'from_address': tx.from_address,
+                            'to_address': tx.to_address,
+                            'value_wei': tx.value_wei,
+                            'value_ether': tx.value_ether,
+                            'gas': tx.gas,
+                            'gas_price': tx.gas_price,
+                            'gas_price_gwei': tx.gas_price_gwei,
+                            'input_data': tx.input_data,
+                            'nonce': tx.nonce,
+                            'transaction_index': tx.transaction_index
+                        } for tx in transactions]
+                
+                session.close()
+                
+                if block_data:
+                    return block_data
                     
             except Exception as e:
                 logger.error(f"Error retrieving block from PostgreSQL: {e}")
@@ -518,10 +544,114 @@ class DatabaseManager:
                 if block:
                     # Remove MongoDB-specific fields (_id) before returning
                     block.pop('_id', None)
+                    block.pop('created_at', None)
+                    
+                    # MongoDB should already have transactions included if they were stored
+                    # But if include_transactions is False, remove them
+                    if not include_transactions and 'transactions' in block:
+                        block.pop('transactions', None)
+                    
                     return block
                     
             except Exception as e:
                 logger.error(f"Error retrieving block from MongoDB: {e}")
+        
+        # Return None if block not found in either database
+        return None
+    
+    def get_block_by_hash(self, block_hash: str, include_transactions: bool = True) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve block data from database by block hash
+        
+        This method attempts to retrieve block data from PostgreSQL first, then
+        MongoDB if PostgreSQL fails or returns no results. This provides redundancy
+        and allows the system to work even if one database is unavailable.
+        
+        Args:
+            block_hash: The block hash to retrieve (with or without 0x prefix)
+            include_transactions: Whether to include transaction data
+            
+        Returns:
+            Optional[Dict[str, Any]]: Block data dictionary or None if not found
+            
+        Note: The returned data structure matches the input format used by store_block()
+        """
+        # Ensure block hash has 0x prefix
+        if not block_hash.startswith('0x'):
+            block_hash = '0x' + block_hash
+        
+        # ===== TRY POSTGRESQL FIRST =====
+        if self.use_postgres:
+            try:
+                # Create a new database session
+                session = self.PostgresSession()
+                
+                # Query for the block with the specified block hash
+                block = session.query(Block).filter(Block.block_hash == block_hash).first()
+                
+                block_data = None
+                if block:
+                    block_data = {
+                        'block_number': block.block_number,
+                        'block_hash': block.block_hash,
+                        'parent_hash': block.parent_hash,
+                        'timestamp': block.timestamp,
+                        'miner': block.miner,
+                        'difficulty': block.difficulty,
+                        'gas_limit': block.gas_limit,
+                        'gas_used': block.gas_used,
+                        'transaction_count': block.transaction_count
+                    }
+                    
+                    # Include transactions if requested
+                    if include_transactions:
+                        transactions = session.query(Transaction).filter(
+                            Transaction.block_number == block.block_number
+                        ).order_by(Transaction.transaction_index).all()
+                        
+                        block_data['transactions'] = [{
+                            'tx_hash': tx.tx_hash,
+                            'block_number': tx.block_number,
+                            'from_address': tx.from_address,
+                            'to_address': tx.to_address,
+                            'value_wei': tx.value_wei,
+                            'value_ether': tx.value_ether,
+                            'gas': tx.gas,
+                            'gas_price': tx.gas_price,
+                            'gas_price_gwei': tx.gas_price_gwei,
+                            'input_data': tx.input_data,
+                            'nonce': tx.nonce,
+                            'transaction_index': tx.transaction_index
+                        } for tx in transactions]
+                
+                session.close()
+                
+                if block_data:
+                    return block_data
+                    
+            except Exception as e:
+                logger.error(f"Error retrieving block by hash from PostgreSQL: {e}")
+        
+        # ===== TRY MONGODB IF POSTGRESQL FAILED =====
+        if self.use_mongodb:
+            try:
+                # Query MongoDB for the block
+                block = self.blocks_collection.find_one({'block_hash': block_hash})
+                
+                if block:
+                    # Remove MongoDB-specific fields (_id) before returning
+                    block.pop('_id', None)
+                    block.pop('created_at', None)
+                    
+                    # MongoDB should already have transactions included if they were stored
+                    # But if include_transactions is False, remove them
+                    if not include_transactions and 'transactions' in block:
+                        block.pop('transactions', None)
+                    
+                    return block
+                    
+            except Exception as e:
+                logger.error(f"Error retrieving block by hash from MongoDB: {e}")
         
         # Return None if block not found in either database
         return None
@@ -750,12 +880,13 @@ class DatabaseManager:
         
         return None
     
-    def get_recent_blocks(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_recent_blocks(self, limit: int = 50, include_transactions: bool = False) -> List[Dict[str, Any]]:
         """
         Get recent blocks from the database
         
         Args:
             limit: Maximum number of blocks to return
+            include_transactions: Whether to include transaction data
             
         Returns:
             List[Dict[str, Any]]: List of recent block data
@@ -764,19 +895,47 @@ class DatabaseManager:
             try:
                 session = self.PostgresSession()
                 blocks = session.query(Block).order_by(Block.block_number.desc()).limit(limit).all()
-                session.close()
                 
-                return [{
-                    'block_number': block.block_number,
-                    'block_hash': block.block_hash,
-                    'parent_hash': block.parent_hash,
-                    'timestamp': block.timestamp,
-                    'miner': block.miner,
-                    'difficulty': block.difficulty,
-                    'gas_limit': block.gas_limit,
-                    'gas_used': block.gas_used,
-                    'transaction_count': block.transaction_count
-                } for block in blocks]
+                result_blocks = []
+                for block in blocks:
+                    block_data = {
+                        'block_number': block.block_number,
+                        'block_hash': block.block_hash,
+                        'parent_hash': block.parent_hash,
+                        'timestamp': block.timestamp,
+                        'miner': block.miner,
+                        'difficulty': block.difficulty,
+                        'gas_limit': block.gas_limit,
+                        'gas_used': block.gas_used,
+                        'transaction_count': block.transaction_count
+                    }
+                    
+                    # Include transactions if requested
+                    if include_transactions:
+                        transactions = session.query(Transaction).filter(
+                            Transaction.block_number == block.block_number
+                        ).order_by(Transaction.transaction_index).all()
+                        
+                        block_data['transactions'] = [{
+                            'tx_hash': tx.tx_hash,
+                            'block_number': tx.block_number,
+                            'from_address': tx.from_address,
+                            'to_address': tx.to_address,
+                            'value_wei': tx.value_wei,
+                            'value_ether': tx.value_ether,
+                            'gas': tx.gas,
+                            'gas_price': tx.gas_price,
+                            'gas_price_gwei': tx.gas_price_gwei,
+                            'input_data': tx.input_data,
+                            'nonce': tx.nonce,
+                            'transaction_index': tx.transaction_index
+                        } for tx in transactions]
+                    
+                    result_blocks.append(block_data)
+                
+                session.close()
+                return result_blocks
+                
             except Exception as e:
                 logger.error(f"Error getting recent blocks from PostgreSQL: {e}")
                 return []
@@ -787,9 +946,14 @@ class DatabaseManager:
                     sort=[('block_number', -1)]
                 ).limit(limit))
                 
-                # Remove MongoDB-specific fields
+                # Remove MongoDB-specific fields and handle transactions
                 for block in blocks:
                     block.pop('_id', None)
+                    block.pop('created_at', None)
+                    
+                    # If include_transactions is False, remove transactions
+                    if not include_transactions and 'transactions' in block:
+                        block.pop('transactions', None)
                 
                 return blocks
             except Exception as e:

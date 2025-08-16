@@ -1,7 +1,9 @@
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # Library that loads environment variables from a .env file into Python
 
 # Load environment variables from .env file
+# This reads key-value pairs from a .env file (like INFURA_URL=your_api_key) 
+# and makes them available through os.getenv() - keeps sensitive data out of code
 load_dotenv()
 
 # Ethereum Configuration

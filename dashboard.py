@@ -160,36 +160,17 @@ def show_block_explorer(db_manager, blockchain_client):
                     st.write(f"- Latest block: #{latest_block['block_number']}")
                     
                     # Test getting this block with transactions
-                    try:
-                        test_block = db_manager.get_block(latest_block['block_number'], include_transactions=True)
-                        if test_block and 'transactions' in test_block:
-                            st.write(f"- Latest block has {len(test_block['transactions'])} transactions stored")
-                        else:
-                            st.write(f"- Latest block has no transaction data stored")
-                    except TypeError as e:
-                        # Fallback for older method signature
-                        st.warning(f"Method signature issue: {e}")
-                        st.write("- Using manual transaction retrieval...")
-                        
-                        # Manually get transactions for this block
-                        try:
-                            if db_manager.use_postgres:
-                                session = db_manager.PostgresSession()
-                                from database import Transaction
-                                transactions = session.query(Transaction).filter(
-                                    Transaction.block_number == latest_block['block_number']
-                                ).all()
-                                session.close()
-                                st.write(f"- Found {len(transactions)} transactions for block #{latest_block['block_number']}")
-                            elif db_manager.use_mongodb:
-                                transactions = list(db_manager.transactions_collection.find(
-                                    {'block_number': latest_block['block_number']}
-                                ))
-                                st.write(f"- Found {len(transactions)} transactions for block #{latest_block['block_number']}")
-                            else:
-                                st.write("- No database connection available")
-                        except Exception as manual_e:
-                            st.error(f"Manual transaction retrieval failed: {manual_e}")
+                    test_block = db_manager.get_block(latest_block['block_number'], include_transactions=True)
+                    if test_block and 'transactions' in test_block:
+                        st.write(f"- Latest block has {len(test_block['transactions'])} transactions stored")
+                        # Show first few transaction hashes as proof
+                        if test_block['transactions']:
+                            st.write(f"- Sample transaction hashes:")
+                            for i, tx in enumerate(test_block['transactions'][:3]):
+                                st.write(f"  • TX {i+1}: {tx['tx_hash'][:20]}...")
+                    else:
+                        st.write(f"- Latest block has no transaction data stored")
+                        st.warning("⚠️ This indicates transactions weren't collected with the block data")
             else:
                 st.write("- No blocks found. Please collect some data first.")
                 
@@ -216,7 +197,7 @@ def show_block_explorer(db_manager, blockchain_client):
         try:
             if search_option == "Block Number" and search_value:
                 block_num = int(search_value)
-                block_data = db_manager.get_block(block_num)
+                block_data = db_manager.get_block(block_num, include_transactions=True)
                 if block_data:
                     display_block_details(block_data)
                 else:
@@ -232,11 +213,7 @@ def show_block_explorer(db_manager, blockchain_client):
             
             elif search_option == "Latest Blocks":
                 # Get blocks with transactions included
-                try:
-                    blocks = db_manager.get_recent_blocks(num_blocks, include_transactions=True)
-                except TypeError:
-                    # Fallback to old method signature
-                    blocks = db_manager.get_recent_blocks(num_blocks)
+                blocks = db_manager.get_recent_blocks(num_blocks, include_transactions=True)
                 
                 if blocks:
                     st.success(f"Found {len(blocks)} blocks in database")
@@ -287,55 +264,8 @@ def display_blocks_table(blocks):
     
     for block in blocks:
         try:
-            # Try to get full block data with transactions (new method)
-            try:
-                full_block_data = db_manager.get_block(block['block_number'], include_transactions=True)
-            except TypeError:
-                # Fallback to old method signature and manually add transactions
-                full_block_data = db_manager.get_block(block['block_number'])
-                
-                # Manually retrieve transactions for this block
-                if full_block_data:
-                    try:
-                        if db_manager.use_postgres:
-                            session = db_manager.PostgresSession()
-                            from database import Transaction
-                            transactions = session.query(Transaction).filter(
-                                Transaction.block_number == block['block_number']
-                            ).order_by(Transaction.transaction_index).all()
-                            
-                            # Convert to dictionary format
-                            full_block_data['transactions'] = [{
-                                'tx_hash': tx.tx_hash,
-                                'block_number': tx.block_number,
-                                'from_address': tx.from_address,
-                                'to_address': tx.to_address,
-                                'value_wei': str(tx.value_wei),
-                                'value_ether': float(tx.value_ether),
-                                'gas': tx.gas,
-                                'gas_price': str(tx.gas_price),
-                                'gas_price_gwei': float(tx.gas_price_gwei),
-                                'input_data': tx.input_data,
-                                'nonce': tx.nonce,
-                                'transaction_index': tx.transaction_index
-                            } for tx in transactions]
-                            session.close()
-                            
-                        elif db_manager.use_mongodb:
-                            transactions = list(db_manager.transactions_collection.find(
-                                {'block_number': block['block_number']}
-                            ).sort('transaction_index', 1))
-                            
-                            # Remove MongoDB-specific fields
-                            for tx in transactions:
-                                tx.pop('_id', None)
-                                tx.pop('created_at', None)
-                            
-                            full_block_data['transactions'] = transactions
-                            
-                    except Exception as tx_e:
-                        st.error(f"Error manually retrieving transactions for block {block['block_number']}: {tx_e}")
-                        full_block_data['transactions'] = []
+            # Get full block data with transactions
+            full_block_data = db_manager.get_block(block['block_number'], include_transactions=True)
             
             # Debug output
             st.write(f"Block #{block['block_number']}:")
@@ -343,11 +273,14 @@ def display_blocks_table(blocks):
             
             if full_block_data:
                 st.write(f"- Retrieved block data: ✅")
-                if 'transactions' in full_block_data:
+                if 'transactions' in full_block_data and full_block_data['transactions']:
                     st.write(f"- Transactions in retrieved data: {len(full_block_data['transactions'])}")
+                    # Show sample transaction hashes
+                    sample_tx = full_block_data['transactions'][0]
+                    st.write(f"- Sample TX hash: {sample_tx['tx_hash'][:20]}...")
                 else:
-                    st.write(f"- No 'transactions' key in retrieved data")
-                    st.write(f"- Keys in retrieved data: {list(full_block_data.keys())}")
+                    st.write(f"- No transactions found in retrieved data")
+                    st.warning("⚠️ Block was collected without transaction data")
                 enriched_blocks.append(full_block_data)
             else:
                 st.write(f"- Failed to retrieve full block data ❌")
@@ -374,7 +307,7 @@ def display_blocks_table(blocks):
         if 'transactions' in block_data and block_data['transactions']:
             transactions = block_data['transactions']
             
-            with st.expander(f"Block #{block_num} - {len(transactions)} Transaction Hashes"):
+            with st.expander(f"Block #{block_num} - {len(transactions)} Transaction Hashes", expanded=True):
                 
                 # Create a table with transaction hashes and basic info
                 tx_data = []
@@ -402,16 +335,15 @@ def display_blocks_table(blocks):
                             st.success("✅ Transaction selected! Go to Transaction Analysis tab.")
                 
                 # Show copyable transaction hashes
-                if st.checkbox(f"Show copyable hashes for Block #{block_num}", key=f"show_copyable_{block_num}"):
-                    st.write("**Copy Transaction Hashes:**")
-                    for i, tx in enumerate(transactions):
-                        col1, col2 = st.columns([4, 1])
-                        with col1:
-                            st.code(tx['tx_hash'], language='text')
-                        with col2:
-                            if st.button(f"Analyze", key=f"analyze_copy_{block_num}_{i}"):
-                                st.session_state['selected_tx_hash'] = tx['tx_hash']
-                                st.success("✅ Hash copied! Go to Transaction Analysis.")
+                st.write("**Copy Transaction Hashes:**")
+                for i, tx in enumerate(transactions[:10]):  # Show first 10
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.code(tx['tx_hash'], language='text')
+                    with col2:
+                        if st.button(f"Analyze", key=f"analyze_copy_{block_num}_{i}"):
+                            st.session_state['selected_tx_hash'] = tx['tx_hash']
+                            st.success("✅ Hash selected! Go to Transaction Analysis.")
         else:
             with st.expander(f"Block #{block_num} - No transaction data available"):
                 st.warning("⚠️ Transaction data not found for this block.")
@@ -420,8 +352,32 @@ def display_blocks_table(blocks):
                 st.write("- Database connection issue during collection")
                 st.write("- Block contains 0 transactions")
                 
-                if st.button(f"Try to re-collect Block #{block_num}", key=f"recollect_{block_num}"):
-                    st.info("Re-collection feature would be implemented here")
+                # Add a button to check if transactions exist separately
+                if st.button(f"Check for transactions in Block #{block_num}", key=f"check_tx_{block_num}"):
+                    try:
+                        if db_manager.use_postgres:
+                            session = db_manager.PostgresSession()
+                            from database import Transaction
+                            tx_count = session.query(Transaction).filter(
+                                Transaction.block_number == block_num
+                            ).count()
+                            session.close()
+                            if tx_count > 0:
+                                st.success(f"Found {tx_count} transactions in database for this block!")
+                                st.info("The issue is with data retrieval, not storage.")
+                            else:
+                                st.warning("No transactions found in database for this block.")
+                        elif db_manager.use_mongodb:
+                            tx_count = db_manager.transactions_collection.count_documents(
+                                {'block_number': block_num}
+                            )
+                            if tx_count > 0:
+                                st.success(f"Found {tx_count} transactions in database for this block!")
+                                st.info("The issue is with data retrieval, not storage.")
+                            else:
+                                st.warning("No transactions found in database for this block.")
+                    except Exception as e:
+                        st.error(f"Error checking transactions: {e}")
 
 def show_transaction_analysis(db_manager):
     """Show transaction analysis"""

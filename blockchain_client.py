@@ -58,18 +58,34 @@ class BlockchainClient:
             logger.error(f"Error getting latest block number: {e}")
             raise
     
-    def get_block(self, block_number: int) -> Optional[Dict[str, Any]]:
+    def get_block(self, block_number: int, include_transactions: bool = True) -> Optional[Dict[str, Any]]:
         """
         Get block data by block number
         
         Args:
             block_number: Block number to retrieve
+            include_transactions: Whether to include full transaction data
             
         Returns:
             Block data dictionary or None if not found
         """
         try:
-            block = self.w3.eth.get_block(block_number, full_transactions=True)
+            block = self.w3.eth.get_block(block_number, full_transactions=include_transactions)
+            
+            # DEBUG: Log transaction retrieval details
+            if include_transactions:
+                tx_count = len(block.get('transactions', []))
+                logger.info(f"DEBUG: Block {block_number} retrieved with {tx_count} transactions")
+                if tx_count > 0:
+                    first_tx = block['transactions'][0]
+                    # Treat Web3 AttributeDict like a mapping
+                    if hasattr(first_tx, 'get'):
+                        logger.info(f"DEBUG: First transaction is full object with hash: {first_tx.get('hash', 'N/A')}")
+                    else:
+                        logger.warning(f"DEBUG: First transaction is just a hash: {first_tx}")
+                else:
+                    logger.info(f"DEBUG: Block {block_number} contains no transactions")
+            
             return self._format_block_data(block)
         except BlockNotFound:
             logger.warning(f"Block {block_number} not found")
@@ -127,7 +143,7 @@ class BlockchainClient:
         Returns:
             Formatted block data
         """
-        return {
+        formatted_block = {
             'block_number': block['number'],
             'block_hash': block['hash'].hex(),
             'parent_hash': block['parentHash'].hex(),
@@ -137,8 +153,16 @@ class BlockchainClient:
             'gas_limit': block['gasLimit'],
             'gas_used': block['gasUsed'],
             'transaction_count': len(block['transactions']),
-            'transactions': [self._format_transaction_data(tx) for tx in block['transactions']]
         }
+        
+        # Only format transactions if they are full transaction objects (not just hashes)
+        if block['transactions'] and len(block['transactions']) > 0 and hasattr(block['transactions'][0], 'get'):
+            formatted_block['transactions'] = [self._format_transaction_data(tx) for tx in block['transactions']]
+        else:
+            # If transactions are just hashes or empty, don't include them
+            formatted_block['transactions'] = []
+            
+        return formatted_block
     
     def _format_transaction_data(self, tx) -> Dict[str, Any]:
         """

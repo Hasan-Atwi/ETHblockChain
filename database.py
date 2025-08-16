@@ -16,8 +16,9 @@ PostgreSQL and MongoDB simultaneously for redundancy and different query capabil
 """
 
 import logging
+import os
 from typing import Dict, List, Optional, Any
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, BigInteger, Numeric
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, BigInteger, Numeric, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from pymongo import MongoClient
@@ -116,7 +117,7 @@ class Transaction(Base):
     tx_hash = Column(String(66), primary_key=True)
     
     # Foreign key reference to the block this transaction belongs to
-    block_number = Column(BigInteger, nullable=False)
+    block_number = Column(BigInteger, ForeignKey('blocks.block_number'), nullable=False)
     
     # Sender's Ethereum address (42 chars: 0x + 40 hex chars)
     from_address = Column(String(42), nullable=False)
@@ -169,7 +170,7 @@ class DatabaseManager:
     databases simultaneously for redundancy and different query capabilities.
     """
     
-    def __init__(self, use_postgres: bool = True, use_mongodb: bool = True):
+    def __init__(self, use_postgres: bool = True, use_mongodb: bool = True, *, reset_on_init: bool = False):
         """
         Initialize the database manager
         
@@ -185,16 +186,17 @@ class DatabaseManager:
         # Store database preferences
         self.use_postgres = use_postgres
         self.use_mongodb = use_mongodb
+        self._reset_on_init = reset_on_init
         
         # Initialize PostgreSQL connection if requested
         if use_postgres:
-            self._setup_postgres()
+            self._setup_postgres(reset_on_init=self._reset_on_init)
         
         # Initialize MongoDB connection if requested
         if use_mongodb:
             self._setup_mongodb()
     
-    def _setup_postgres(self):
+    def _setup_postgres(self, *, reset_on_init: bool = False):
         """
         Set up PostgreSQL database connection and create tables
         
@@ -226,8 +228,11 @@ class DatabaseManager:
             # This allows us to create database sessions for transactions
             self.PostgresSession = sessionmaker(bind=self.postgres_engine)
             
-            # Drop and recreate tables to handle schema changes
-            Base.metadata.drop_all(self.postgres_engine)
+            # Create tables, optionally resetting if requested
+            should_reset = reset_on_init or os.getenv('DB_RESET_ON_INIT', '0') in ('1', 'true', 'True')
+            if should_reset:
+                Base.metadata.drop_all(self.postgres_engine)
+                logger.info("PostgreSQL tables dropped due to reset_on_init flag")
             Base.metadata.create_all(self.postgres_engine)
             
             logger.info("PostgreSQL connection established and tables created")
@@ -391,32 +396,43 @@ class DatabaseManager:
                 # Create a new database session
                 session = self.PostgresSession()
                 
-                # Create a Transaction record object from the data
-                # Convert numeric values to appropriate types
-                tx_record = Transaction(
-                    tx_hash=tx_data['tx_hash'],
-                    block_number=tx_data['block_number'],
-                    from_address=tx_data['from_address'],
-                    to_address=tx_data['to_address'],
-                    value_wei=str(tx_data['value_wei']),  # Convert to string for NUMERIC
-                    value_ether=float(tx_data['value_ether']),  # Convert to float for storage
-                    gas=tx_data['gas'],
-                    gas_price=str(tx_data['gas_price']),  # Convert to string for NUMERIC
-                    gas_price_gwei=float(tx_data['gas_price_gwei']),  # Convert to float
-                    input_data=tx_data['input_data'],
-                    nonce=tx_data['nonce'],
-                    transaction_index=tx_data['transaction_index']
-                )
-                
-                # Add the record to the session and commit to database
-                session.add(tx_record)
-                session.commit()
-                session.close()
-                
-                logger.info(f"Stored transaction {tx_data['tx_hash'][:20]}... in PostgreSQL")
-                
+                try:
+                    # Create a Transaction record object from the data
+                    # Convert numeric values to appropriate types
+                    tx_record = Transaction(
+                        tx_hash=tx_data['tx_hash'],
+                        block_number=tx_data['block_number'],
+                        from_address=tx_data['from_address'],
+                        to_address=tx_data['to_address'],
+                        value_wei=str(tx_data['value_wei']),  # Convert to string for NUMERIC
+                        value_ether=float(tx_data['value_ether']),  # Convert to float for storage
+                        gas=tx_data['gas'],
+                        gas_price=str(tx_data['gas_price']),  # Convert to string for NUMERIC
+                        gas_price_gwei=float(tx_data['gas_price_gwei']),  # Convert to float
+                        input_data=tx_data['input_data'],
+                        nonce=tx_data['nonce'],
+                        transaction_index=tx_data['transaction_index']
+                    )
+                    
+                    # Add the record to the session and commit to database
+                    session.add(tx_record)
+                    session.commit()
+                    
+                    logger.info(f"Stored transaction {tx_data['tx_hash'][:20]}... in PostgreSQL")
+                    
+                except Exception as e:
+                    # Rollback the transaction on error
+                    session.rollback()
+                    logger.error(f"Error storing transaction {tx_data['tx_hash'][:20]}... in PostgreSQL: {e}")
+                    logger.error(f"Transaction data: {tx_data}")
+                    success = False
+                    
+                finally:
+                    # Always close the session
+                    session.close()
+                    
             except Exception as e:
-                logger.error(f"Error storing transaction in PostgreSQL: {e}")
+                logger.error(f"Error creating PostgreSQL session: {e}")
                 success = False
         
         # ===== STORE IN MONGODB =====
@@ -454,14 +470,27 @@ class DatabaseManager:
         Note: This method requires the block_data to contain a 'transactions' list
         with transaction dictionaries.
         """
+        logger.info(f"Storing block {block_data.get('block_number', 'unknown')} with {len(block_data.get('transactions', []))} transactions")
+        
         # First, store the block data (without transactions)
         block_success = self.store_block(block_data)
         
+        if not block_success:
+            logger.error(f"Failed to store block {block_data.get('block_number', 'unknown')}")
+            return False
+        
         # Then, store each transaction in the block
         transactions_success = True
+        transaction_count = 0
+        
         for tx in block_data.get('transactions', []):
-            if not self.store_transaction(tx):
+            if self.store_transaction(tx):
+                transaction_count += 1
+            else:
+                logger.error(f"Failed to store transaction {tx.get('tx_hash', 'unknown')}")
                 transactions_success = False
+        
+        logger.info(f"Successfully stored block {block_data.get('block_number', 'unknown')} with {transaction_count}/{len(block_data.get('transactions', []))} transactions")
         
         # Return True only if both block and all transactions were stored successfully
         return block_success and transactions_success
@@ -512,20 +541,24 @@ class DatabaseManager:
                             Transaction.block_number == block_number
                         ).order_by(Transaction.transaction_index).all()
                         
+                        logger.info(f"PostgreSQL: Found {len(transactions)} transactions for block {block_number}")
+                        
                         block_data['transactions'] = [{
                             'tx_hash': tx.tx_hash,
                             'block_number': tx.block_number,
                             'from_address': tx.from_address,
                             'to_address': tx.to_address,
-                            'value_wei': tx.value_wei,
-                            'value_ether': tx.value_ether,
+                            'value_wei': str(tx.value_wei),  # Ensure string conversion
+                            'value_ether': float(tx.value_ether),  # Ensure float conversion
                             'gas': tx.gas,
-                            'gas_price': tx.gas_price,
-                            'gas_price_gwei': tx.gas_price_gwei,
+                            'gas_price': str(tx.gas_price),  # Ensure string conversion
+                            'gas_price_gwei': float(tx.gas_price_gwei),  # Ensure float conversion
                             'input_data': tx.input_data,
                             'nonce': tx.nonce,
                             'transaction_index': tx.transaction_index
                         } for tx in transactions]
+                    else:
+                        block_data['transactions'] = []
                 
                 session.close()
                 
@@ -546,9 +579,21 @@ class DatabaseManager:
                     block.pop('_id', None)
                     block.pop('created_at', None)
                     
-                    # MongoDB should already have transactions included if they were stored
-                    # But if include_transactions is False, remove them
-                    if not include_transactions and 'transactions' in block:
+                    # Include transactions if requested
+                    if include_transactions:
+                        # Get transactions from the transactions collection
+                        transactions = list(self.transactions_collection.find(
+                            {'block_number': block_number}
+                        ).sort('transaction_index', 1))
+                        
+                        # Remove MongoDB-specific fields from transactions
+                        for tx in transactions:
+                            tx.pop('_id', None)
+                            tx.pop('created_at', None)
+                        
+                        block['transactions'] = transactions
+                    else:
+                        # Remove transactions if not requested
                         block.pop('transactions', None)
                     
                     return block
@@ -609,20 +654,24 @@ class DatabaseManager:
                             Transaction.block_number == block.block_number
                         ).order_by(Transaction.transaction_index).all()
                         
+                        logger.info(f"PostgreSQL get_block_by_hash: Found {len(transactions)} transactions for block {block.block_number}")
+                        
                         block_data['transactions'] = [{
                             'tx_hash': tx.tx_hash,
                             'block_number': tx.block_number,
                             'from_address': tx.from_address,
                             'to_address': tx.to_address,
-                            'value_wei': tx.value_wei,
-                            'value_ether': tx.value_ether,
+                            'value_wei': str(tx.value_wei),  # Ensure string conversion
+                            'value_ether': float(tx.value_ether),  # Ensure float conversion
                             'gas': tx.gas,
-                            'gas_price': tx.gas_price,
-                            'gas_price_gwei': tx.gas_price_gwei,
+                            'gas_price': str(tx.gas_price),  # Ensure string conversion
+                            'gas_price_gwei': float(tx.gas_price_gwei),  # Ensure float conversion
                             'input_data': tx.input_data,
                             'nonce': tx.nonce,
                             'transaction_index': tx.transaction_index
                         } for tx in transactions]
+                    else:
+                        block_data['transactions'] = []
                 
                 session.close()
                 
@@ -643,9 +692,21 @@ class DatabaseManager:
                     block.pop('_id', None)
                     block.pop('created_at', None)
                     
-                    # MongoDB should already have transactions included if they were stored
-                    # But if include_transactions is False, remove them
-                    if not include_transactions and 'transactions' in block:
+                    # Include transactions if requested
+                    if include_transactions:
+                        # Get transactions from the transactions collection
+                        transactions = list(self.transactions_collection.find(
+                            {'block_number': block['block_number']}
+                        ).sort('transaction_index', 1))
+                        
+                        # Remove MongoDB-specific fields from transactions
+                        for tx in transactions:
+                            tx.pop('_id', None)
+                            tx.pop('created_at', None)
+                        
+                        block['transactions'] = transactions
+                    else:
+                        # Remove transactions if not requested
                         block.pop('transactions', None)
                     
                     return block
@@ -880,7 +941,7 @@ class DatabaseManager:
         
         return None
     
-    def get_recent_blocks(self, limit: int = 50, include_transactions: bool = False) -> List[Dict[str, Any]]:
+    def get_recent_blocks(self, limit: int = 50, include_transactions: bool = True) -> List[Dict[str, Any]]:
         """
         Get recent blocks from the database
         
@@ -951,8 +1012,21 @@ class DatabaseManager:
                     block.pop('_id', None)
                     block.pop('created_at', None)
                     
-                    # If include_transactions is False, remove transactions
-                    if not include_transactions and 'transactions' in block:
+                    # Include transactions if requested
+                    if include_transactions:
+                        # Get transactions from the transactions collection
+                        transactions = list(self.transactions_collection.find(
+                            {'block_number': block['block_number']}
+                        ).sort('transaction_index', 1))
+                        
+                        # Remove MongoDB-specific fields from transactions
+                        for tx in transactions:
+                            tx.pop('_id', None)
+                            tx.pop('created_at', None)
+                        
+                        block['transactions'] = transactions
+                    else:
+                        # Remove transactions if not requested
                         block.pop('transactions', None)
                 
                 return blocks

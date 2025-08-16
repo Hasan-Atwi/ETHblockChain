@@ -84,10 +84,10 @@ class ETLPipeline:
         blocks = []
         for block_num in range(start_block, end_block + 1):
             try:
-                block_data = self.blockchain_client.get_block(block_num)
+                block_data = self.blockchain_client.get_block(block_num, include_transactions=True)
                 if block_data:
                     blocks.append(block_data)
-                    logger.debug(f"Extracted block {block_num}")
+                    logger.info(f"Extracted block {block_num} with {len(block_data.get('transactions', []))} transactions")
                 else:
                     logger.warning(f"Block {block_num} not found or failed to extract")
                 
@@ -174,11 +174,23 @@ class ETLPipeline:
                 # Transform block data
                 transformed_block = self.transform_block_data(block_data)
                 
-                # Store block
+                # Store block with transactions
                 logger.info(f"Storing block {block_data['block_number']} with {len(block_data.get('transactions', []))} transactions")
+                
+                # Ensure transactions are properly transformed
+                if 'transactions' in block_data and block_data['transactions']:
+                    transformed_transactions = []
+                    for tx in block_data['transactions']:
+                        transformed_tx = self.transform_transaction_data(tx)
+                        transformed_transactions.append(transformed_tx)
+                    transformed_block['transactions'] = transformed_transactions
+                else:
+                    transformed_block['transactions'] = []
+                    logger.warning(f"Block {block_data['block_number']} has no transactions to store")
+                
                 if self.db_manager.store_block_with_transactions(transformed_block):
                     success_count += 1
-                    logger.info(f"Successfully loaded block {block_data['block_number']} with {len(block_data.get('transactions', []))} transactions")
+                    logger.info(f"Successfully loaded block {block_data['block_number']} with {len(transformed_block.get('transactions', []))} transactions")
                 else:
                     logger.error(f"Failed to load block {block_data['block_number']}")
                 
